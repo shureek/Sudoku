@@ -56,10 +56,30 @@ namespace Sudoku
 					if (values[row][col] > 0)
 						cell.Variants.Add(values[row][col]);
 					else
-					{
-						for (int val = 1; val <= Size; val++)
-							cell.Variants.Add(val);
-					}
+						cell.Variants.UnionWith(AllValues);
+				}
+			}
+		}
+		
+		public void Init(string values)
+		{
+			Init(values.Split(new String[] {Environment.NewLine}, StringSplitOptions.None));
+		}
+		
+		public void Init(string[] values)
+		{
+			for (int row = 0; row < Size; row++)
+			{
+				for (int col = 0; col < Size; col++)
+				{
+					char ch = values[row][col * 2 + 1];
+					int value = ch >= '1' && ch <= '9' ? (int)ch - (int)'0' : 0;
+					
+					var cell = this[row,col];
+					if (value > 0)
+						cell.Variants.Add(value);
+					else
+						cell.Variants.UnionWith(AllValues);
 				}
 			}
 		}
@@ -125,7 +145,7 @@ namespace Sudoku
 			this.field = field;
 			this.areaIndex = areaIndex;
 			this.cellGetter = cellGetter;
-			this.type;
+			this.type = type;
 		}
 		
 		public AreaType Type { get { return type; } }
@@ -179,6 +199,16 @@ namespace Sudoku
 					return variants.Min;
 				else
 					return null;
+			}
+			set
+			{
+				if (value == null)
+					throw new ArgumentNullException("value");
+				if (!variants.Contains(value.Value))
+					throw new ArgumentException("Specified value is not acceptible in this cell", "value");
+				
+				variants.Clear();
+				variants.Add(value.Value);
 			}
 		}
 		

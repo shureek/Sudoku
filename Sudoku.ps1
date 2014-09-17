@@ -1,7 +1,33 @@
-﻿$VerbosePreference = 'Continue'
-
-$Path = Split-Path -Path $PSCommandPath -Parent
+﻿$Path = Split-Path -Path $PSCommandPath -Parent
 Add-Type -Path "$Path\Sudoku.cs"
+
+function New-Set {
+    [CmdletBinding()]
+    param(
+        [int[]]$N
+    )
+
+    begin {
+        $Set = New-Object System.Collections.Generic.SortedSet[int]
+    }
+    process {
+        $Set.UnionWith($N)
+    }
+    end {
+        Write-Output $Set -NoEnumerate
+    }
+}
+
+function New-Tuple {
+    param(
+        [Parameter(Mandatory=$true, Position=0)]
+        $Collection
+    )
+
+    $TypeName = "Tuple[$(,'int' * $Collection.Count -join ',')]"
+    $Args = [int[]]$Collection
+    New-Object $TypeName $Args
+}
 
 function Format-Field {
     [CmdletBinding()]
@@ -74,48 +100,142 @@ function Remove-WrongVariants {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$true, Position=0, ValueFromPipeline=$true)]
-        [Sudoku.Area]$Area
+        [Sudoku.Field]$Field
     )
+    
+    begin {
+        $SinglePlaces = New-Object 'System.Collections.Generic.Dictionary[int,int]'
+        $Doubles = New-Object 'System.Collections.Generic.Dictionary[Tuple[int,int],int]'
+    }
+    process {
+        $Removed = 0
+        $Field.Rows, $Field.Columns, $Field.Squares | %{ $_ } | %{
+            $Area = $_
+            $AreaValues = $Area.GetValues()
+            $CellIndex = -1
+            foreach ($Cell in $Area) {
+                $CellIndex++
+                if ($Cell.Variants.Count -gt 1) {
+                    $wasStr = "$($Cell.Variants)"
+                    $was = $Cell.Variants.Count
+                    foreach ($val in $AreaValues) {
+                        if ($Cell.Variants.Remove($val)) {
+                            $Removed++
+                        }
+                    }
+                    $nowStr = "$($Cell.Variants)"
+                    Write-Verbose "Cell $wasStr => $nowStr"
 
-    $AreaValues = $Area.GetValues()
-    Write-Verbose "Area values: $($AreaValues)"
-    foreach ($Cell in $Area) {
-        if ($Cell.Variants.Count -gt 1) {
-            Write-Verbose "Cell variants was: $($Cell.Variants)"
-            $was = $Cell.Variants.Count
-            foreach ($val in $AreaValues) {
-                Write-Verbose "Removing $val"
-                [void]$Cell.Variants.Remove($val)
+                    #Counting doubles
+                    if ($Cell.Variants.Count -eq 2) {
+                        $tuple = New-Tuple $Cell.Variants
+                        [int]$Count = 0
+                        if (-not $Doubles.TryGetValue($tuple, [ref]$Count)) {
+                            $Count = 0
+                        }
+                        $Doubles[$tuple] = $Count + 1
+                    }
+
+                    #Determining single value places
+                    foreach ($val in $Cell.Variants) {
+                        [int]$Place = 0
+                        if ($SinglePlaces.TryGetValue($val, [ref]$Place)) {
+                            if ($Place -ge 0) {
+                                $SinglePlaces[$val] = -1
+                            }
+                        }
+                        else {
+                            $SinglePlaces[$val] = $CellIndex
+                        }
+                    }
+                }
             }
-            $now = $Cell.Variants.Count
-            Write-Verbose "Cell variants now: $($Cell.Variants)"
+
+            #If there are numbers in one single places, then remove other numbers from that place
+            foreach ($val in $SinglePlaces.Keys) {
+                $Place = $SinglePlaces[$val]
+                if ($Place -ge 0) {
+                    $Cell = $Area[$Place]
+                    $wasStr = "$($Cell.Variants)"
+                    $Removed += $Cell.Variants.Count - 1
+                    $Cell.Value = $val
+                    Write-Verbose "Cell $wasStr => $($Cell.Variants) (single place)"
+                }
+            }
+
+            #If there are doubles in two places, then remove these numbers from other places
+            foreach ($tuple in $Doubles.Keys) {
+                $Count = $Doubles[$tuple]
+                if ($Count -eq 2) {
+                    Write-Verbose "Double found ($($tuple.Item1),$($tuple.Item2)), removing from other cells"
+                    foreach ($Cell in $Area) {
+                        if ($Cell.Variants.Count -eq 2) {
+                            if ($tuple -eq (New-Tuple $Cell.Variants)) {
+                                #This is our tuple, skip it
+                                continue
+                            }
+                        }
+                        if ($Cell.Variants.Remove($tuple.Item1)) {
+                            $Removed++
+                        }
+                        if ($Cell.Variants.Remove($tuple.Item2)) {
+                            $Removed++
+                        }
+                    }
+                }
+            }
+
+            $Doubles.Clear()
+            $SinglePlaces.Clear()
         }
+        $Removed
     }
 }
 
+[int[][]]$Medium = (1,0,0,4,0,0,0,5,0),
+                   (7,4,8,0,1,0,0,3,0),
+                   (5,3,0,0,7,9,0,0,4),
+                   (4,5,0,0,0,0,0,0,7),
+                   (0,0,0,0,0,0,0,0,0),
+                   (0,0,0,8,5,0,0,0,0),
+                   (0,0,5,0,9,7,6,0,0),
+                   (6,0,4,0,0,8,9,0,0),
+                   (0,7,9,5,6,0,0,0,1)
+
+[int[][]]$Hard = (0,0,4,0,0,8,9,0,0),
+                 (0,0,9,0,1,0,0,7,0),
+                 (0,0,8,0,0,4,0,0,2),
+                 (0,7,0,6,0,0,0,9,4),
+                 (4,0,0,0,0,0,0,0,6),
+                 (5,9,0,0,0,1,0,2,0),
+                 (9,0,0,8,0,0,2,0,0),
+                 (0,8,0,0,9,0,7,0,0),
+                 (0,0,7,2,0,0,3,0,0)
+
+$Expert = @'
+|    7     8      |
+|            6 5  |
+|    9     2     4|
+|  5 4   9     6 8|
+|                 |
+|2 1     4   7 9  |
+|7     5     8    |
+|  4 1            |
+|      3     2    |
+'@
+
 $Field = New-Object Sudoku.Field
-$Field.Init(((0,9,0,0,0,0,6,2,8),
-             (0,8,6,0,9,0,5,7,3),
-             (3,2,7,6,8,5,1,9,4),
-             (8,5,0,0,1,0,0,3,0),
-             (0,4,3,7,2,8,9,0,0),
-             (0,0,0,0,0,0,0,8,0),
-             (2,1,8,5,6,3,7,4,9),
-             (4,0,0,8,7,0,3,0,2),
-             (0,3,9,0,4,0,8,0,0)))
+$Field.Init($Expert)
 
-Write-Verbose "Start"
-Format-Field $Field -Full
+Write-Verbose "Start" -Verbose
+Format-Field $Field
 
-Write-Verbose "Removing wrong variants"
-#Trace-Command -Expression {
-$Field.Rows, $Field.Columns, $Field.Squares | %{
-    Write-Verbose "Processing area collection"
-    $_
-} | %{
-    Write-Verbose "Processing $($_.Type) $($_.GetValues())"
-    Write-Output $_ -NoEnumerate
-} | Remove-WrongVariants -Verbose
-#} -Name ParameterBinding -PSHost
-
-Format-Field $Field -Full
+$step = -1
+do
+{
+    $step++
+    Write-Verbose "Step $step" -Verbose
+    $Removed = Remove-WrongVariants $Field
+    Write-Verbose "$Removed removed" -Verbose
+    Format-Field $Field -Full
+} while ($Removed -gt 0)
