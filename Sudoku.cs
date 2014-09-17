@@ -15,7 +15,7 @@ namespace Sudoku
 	{
 		const int FieldSize = 9;
 		
-		readonly Cell[,] variants;
+		readonly Cell[,] cells;
 		readonly AreaCollection rows, columns, squares;
 		readonly System.Collections.ObjectModel.ReadOnlyCollection<int> allValues;
 		
@@ -26,21 +26,21 @@ namespace Sudoku
 				allValuesArray[i] = i + 1;
 			allValues = new System.Collections.ObjectModel.ReadOnlyCollection<int>(allValuesArray);
 			
-			variants = new Cell[Size,Size];
+			cells = new Cell[Size,Size];
 			for (int row = 0; row < Size; row++)
 				for (int col = 0; col < Size; col++)
-					variants[row,col] = new Cell();
+					cells[row,col] = new Cell();
 			
-			rows = new AreaCollection(this, (field, areaIndex, index) => field[areaIndex, index]);
-			columns = new AreaCollection(this, (field, areaIndex, index) => field[index, areaIndex]);
-			squares = new AreaCollection(this, (field, areaIndex, index) => field[areaIndex / 3 * 3 + index / 3, areaIndex % 3 * 3 + index % 3]);
+			rows = new AreaCollection(this, (field, areaIndex, index) => field[areaIndex, index], AreaType.Row);
+			columns = new AreaCollection(this, (field, areaIndex, index) => field[index, areaIndex], AreaType.Column);
+			squares = new AreaCollection(this, (field, areaIndex, index) => field[areaIndex / 3 * 3 + index / 3, areaIndex % 3 * 3 + index % 3], AreaType.Square);
 		}
 		
 		public System.Collections.ObjectModel.ReadOnlyCollection<int> AllValues { get { return allValues; } }
 		
 		public int Size { get { return FieldSize; } }
 		
-		public Cell this[int row, int col] { get { return variants[row,col]; } }
+		public Cell this[int row, int col] { get { return cells[row,col]; } }
 		
 		public AreaCollection Rows { get { return rows; } }
 		public AreaCollection Columns { get { return columns; } }
@@ -63,6 +63,26 @@ namespace Sudoku
 				}
 			}
 		}
+		
+		public bool GetCellCoordinates(Cell cell, out int row, out int column)
+		{
+			for (int rowIndex = 0; rowIndex < Size; rowIndex++)
+			{
+				for (int colIndex = 0; colIndex < Size; colIndex++)
+				{
+					if (cells[rowIndex,colIndex] == cell)
+					{
+						row = rowIndex;
+						column = colIndex;
+						return true;
+					}
+				}
+			}
+			
+			row = -1;
+			column = -1;
+			return false;
+		}
 	}
 	
 	public sealed class AreaCollection : IReadOnlyList<Area>
@@ -70,12 +90,12 @@ namespace Sudoku
 		readonly Field field;
 		readonly Area[] areas;
 		
-		public AreaCollection(Field field, Func<Field,int,int,Cell> cellGetter)
+		public AreaCollection(Field field, Func<Field,int,int,Cell> cellGetter, AreaType areasType)
 		{
 			this.field = field;
 			areas = new Area[field.Size];
 			for (int i = 0; i < field.Size; i++)
-				areas[i] = new Area(field, i, cellGetter);
+				areas[i] = new Area(field, i, cellGetter, areasType);
 		}
 
 		public IEnumerator<Area> GetEnumerator()
@@ -98,13 +118,17 @@ namespace Sudoku
 		readonly Field field;
 		readonly int areaIndex;
 		readonly Func<Field,int,int,Cell> cellGetter;
+		readonly AreaType type;
 		
-		public Area(Field field, int areaIndex, Func<Field,int,int,Cell> cellGetter)
+		public Area(Field field, int areaIndex, Func<Field,int,int,Cell> cellGetter, AreaType type)
 		{
 			this.field = field;
 			this.areaIndex = areaIndex;
 			this.cellGetter = cellGetter;
+			this.type;
 		}
+		
+		public AreaType Type { get { return type; } }
 		
 		public SortedSet<int> GetValues()
 		{
@@ -159,5 +183,18 @@ namespace Sudoku
 		}
 		
 		public SortedSet<int> Variants { get { return variants; } }
+	}
+	
+	public enum AreaType
+	{
+		Row,
+		Column,
+		Square
+	}
+	
+	public struct Point
+	{
+		public int X { get; set; }
+		public int Y { get; set; }
 	}
 }
