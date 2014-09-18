@@ -106,9 +106,11 @@ function Remove-WrongVariants {
     begin {
         $SinglePlaces = New-Object 'System.Collections.Generic.Dictionary[int,int]'
         $Doubles = New-Object 'System.Collections.Generic.Dictionary[Tuple[int,int],int]'
+        $TripleSize = [int][Math]::Sqrt($Field.Size)
     }
     process {
         $Removed = 0
+        #Просто убираем из вариантов те, которые есть в единственном варианте в других ячейках
         $Field.Rows, $Field.Columns, $Field.Squares | %{ $_ } | %{
             $Area = $_
             $AreaValues = $Area.GetValues()
@@ -152,6 +154,7 @@ function Remove-WrongVariants {
             }
 
             #If there are numbers in one single places, then remove other numbers from that place
+            #Если в области какое-то число встречается только в одной ячейке, то убираем остальные числа из этой ячейки
             foreach ($val in $SinglePlaces.Keys) {
                 $Place = $SinglePlaces[$val]
                 if ($Place -ge 0) {
@@ -164,6 +167,7 @@ function Remove-WrongVariants {
             }
 
             #If there are doubles in two places, then remove these numbers from other places
+            #Если в области есть две ячейки с двумя одинаковыми числами (напр., 2 и 6 и там и там), то убираем эти числа из других ячеек этой области
             foreach ($tuple in $Doubles.Keys) {
                 $Count = $Doubles[$tuple]
                 if ($Count -eq 2) {
@@ -187,6 +191,31 @@ function Remove-WrongVariants {
 
             $Doubles.Clear()
             $SinglePlaces.Clear()
+
+            #Если число может быть только в какой-то тройке области, то убираем это число из других троек другой (смежной) области
+            $Areas = $Field.Rows
+            for ($areaIndex = 0; $areaIndex -lt $Areas.Count; $areaIndex++) {
+                $Area = $Areas[$areaIndex]
+                for ($tripleIndex = 0; $tripleIndex -lt $TripleSize; $tripleIndex++) {
+                    #Проверим тройку $tripleIndex
+                    for ($cellIndex = 0; $cellIndex -lt $TripleSize; $cellIndex++) {
+                        $Cell = $Area[$tripleIndex * $TripleSize + $cellIndex]
+                        if ($Cell.Variants.Count -gt 1) {
+                            foreach ($val in $Cell.Variants) {
+                                [int]$Place = 0
+                                if ($SinglePlaces.TryGetValue($val, [ref]$Place)) {
+                                    if ($Place -ne $tripleIndex) {
+                                        $SinglePlaces[$val] = -1
+                                    }
+                                }
+                                else {
+                                    $SinglePlaces[$val] = $tripleIndex
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         $Removed
     }
@@ -231,11 +260,13 @@ Write-Verbose "Start" -Verbose
 Format-Field $Field
 
 $step = -1
+$RemovedTotal = 0
 do
 {
     $step++
     Write-Verbose "Step $step" -Verbose
     $Removed = Remove-WrongVariants $Field
-    Write-Verbose "$Removed removed" -Verbose
+    $RemovedTotal += $Removed
+    Write-Verbose "$Removed removed, total $RemovedTotal" -Verbose
     Format-Field $Field -Full
 } while ($Removed -gt 0)
